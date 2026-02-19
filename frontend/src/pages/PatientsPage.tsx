@@ -87,10 +87,6 @@ function PatientsPage() {
     }),
     // Then show fields in priority order by domain
     ...canonicalFields
-      .filter((field: CanonicalField) => {
-        // Show all canonical fields (no exclusions needed after cleanup)
-        return true
-      })
       .sort((a: CanonicalField, b: CanonicalField) => {
         // Sort by domain priority
         const domainOrder: Record<string, number> = {

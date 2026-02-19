@@ -220,11 +220,9 @@ function UploadDataset({ onSuccess }: UploadDatasetProps) {
       </div>
       {error && (
         <div style={{ 
-          color: '#ef4444', 
           marginBottom: '1rem',
           padding: '0.75rem',
           backgroundColor: 'rgba(239, 68, 68, 0.1)',
-          border: '1px solid rgba(239, 68, 68, 0.2)',
           color: '#fca5a5',
           borderRadius: '4px',
           border: '1px solid #fcc'
