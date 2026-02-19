@@ -67,8 +67,6 @@ class LoginSession(Base):
 
     id = Column(UUIDType, primary_key=True, default=uuid_default)
     email = Column(String, nullable=False, index=True)
-    otp_code = Column(String, nullable=False)
-    otp_expires_at = Column(DateTime, nullable=False)
     email_verified_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

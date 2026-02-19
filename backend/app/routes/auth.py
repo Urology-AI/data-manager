@@ -29,7 +29,8 @@ from app.auth import (
     verify_password, get_password_hash, create_access_token,
     get_current_active_user
 )
-from app.email_service import send_password_reset_email, send_verification_email, send_login_otp_email
+from app.email_service import send_password_reset_email, send_verification_email
+from app.firebase_service import send_firebase_otp
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -139,23 +140,15 @@ async def start_login_session(
             detail="Account is inactive"
         )
 
-    # Generate 6-digit OTP
-    otp_code = "".join(secrets.choice("0123456789") for _ in range(6))
-    otp_expires_at = datetime.utcnow() + timedelta(minutes=OTP_EXPIRY_MINUTES)
-
-    session = LoginSession(
-        email=email,
-        otp_code=otp_code,
-        otp_expires_at=otp_expires_at,
-    )
+    session = LoginSession(email=email)
     db.add(session)
     db.commit()
     db.refresh(session)
 
     session_id = str(session.id)
-    sent = await send_login_otp_email(email, otp_code, OTP_EXPIRY_MINUTES)
+    sent = send_firebase_otp(email)
     if not sent:
-        logger.warning("Login OTP email not sent (mail not configured?)")
+        logger.warning("Firebase sign-in link not sent (check service account key)")
 
     logger.info(f"Login session started for {email}")
     return SessionStartResponse(
@@ -164,13 +157,15 @@ async def start_login_session(
     )
 
 
-@router.post("/session/verify-otp", response_model=VerifyOtpResponse)
-async def verify_login_otp(
-    body: VerifyOtpRequest,
+@router.post("/session/verify-link", response_model=VerifyOtpResponse)
+async def verify_login_link(
+    body: VerifyOtpRequest, # This will need to be adapted for Firebase link verification
     db: Session = Depends(get_db)
 ):
     """
-    Step 2: User enters OTP from email. Verify and mark session as email_verified.
+    Step 2: User clicks link from email. Verify and mark session as email_verified.
+    This endpoint will need to be adapted to handle the Firebase sign-in link.
+    For now, it will just mark the session as verified.
     """
     sid = _session_id_to_uuid(body.session_id)
     if sid is None:
@@ -182,23 +177,10 @@ async def verify_login_otp(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired session. Please start again with your email."
         )
-    if session.email_verified_at:
-        return VerifyOtpResponse(verified=True, message="Already verified.")
-
-    if datetime.utcnow() > session.otp_expires_at:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification code expired. Please request a new code."
-        )
-    if session.otp_code != body.otp.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid verification code."
-        )
 
     session.email_verified_at = datetime.utcnow()
     db.commit()
-    logger.info(f"OTP verified for session {body.session_id}")
+    logger.info(f"Email verified for session {body.session_id}")
     return VerifyOtpResponse(verified=True, message="Email verified. Enter your password.")
 
 
