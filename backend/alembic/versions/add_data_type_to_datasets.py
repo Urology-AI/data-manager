@@ -17,14 +17,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Add data_type column to datasets table
-    op.add_column('datasets', 
-        sa.Column('data_type', sa.String(), nullable=True, server_default='generic')
-    )
-    # Update existing rows to have 'generic' as default
+    with op.batch_alter_table('datasets', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('data_type', sa.String(), nullable=True, server_default='generic'))
+
+    # The server_default handles new and existing rows, but for older DBs, a manual update might be needed.
+    # This is safe to run as it only affects rows where the column is NULL.
     op.execute("UPDATE datasets SET data_type = 'generic' WHERE data_type IS NULL")
 
 
 def downgrade() -> None:
-    # Remove data_type column from datasets table
-    op.drop_column('datasets', 'data_type')
+    with op.batch_alter_table('datasets', schema=None) as batch_op:
+        batch_op.drop_column('data_type')
