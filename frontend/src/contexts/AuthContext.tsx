@@ -18,7 +18,21 @@ interface AuthContextType {
   register: (email: string, password: string, fullName?: string) => Promise<void>
   logout: () => void
   isAuthenticated: boolean
+  hasSession: boolean // True if token has session_id (unlocked session)
   loading: boolean
+}
+
+/** Decode JWT token to check if it has session_id */
+function hasSessionId(token: string | null): boolean {
+  if (!token) return false
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return false
+    const payload = JSON.parse(atob(parts[1]))
+    return !!payload.session_id
+  } catch {
+    return false
+  }
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -73,6 +87,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('token')
   }
 
+  const hasSession = hasSessionId(token)
+
   return (
     <AuthContext.Provider
       value={{
@@ -83,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         register,
         logout,
         isAuthenticated: !!token && !!user,
+        hasSession,
         loading,
       }}
     >

@@ -10,11 +10,31 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
+import SessionsPage from './pages/SessionsPage'
 import { sessionApi } from './api/client'
 import { getApiErrorMessage } from './api/errors'
 import './App.css'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, hasSession, loading } = useAuth()
+  
+  if (loading) {
+    return <div className="card" style={{ textAlign: 'center' }}>Loading...</div>
+  }
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  
+  // If authenticated but no session unlocked, redirect to sessions page
+  if (!hasSession) {
+    return <Navigate to="/sessions" replace />
+  }
+  
+  return <>{children}</>
+}
+
+function SessionsRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
   
   if (loading) {
@@ -67,11 +87,12 @@ function ClearAllButton() {
 
 function Navigation() {
   const location = useLocation()
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, hasSession, user, logout } = useAuth()
   const isDatasetManagement =
     location.pathname === '/' ||
     location.pathname.startsWith('/datasets')
   const isDataManager = location.pathname === '/data-manager'
+  const isSessions = location.pathname === '/sessions'
 
   if (!isAuthenticated) {
     return null
@@ -80,25 +101,36 @@ function Navigation() {
   return (
     <nav className="navbar">
       <div className="nav-container">
-        <Link to="/datasets" className="nav-logo">
+        <Link to={hasSession ? "/datasets" : "/sessions"} className="nav-logo">
           Data Manager
         </Link>
         <div className="nav-links">
+          {hasSession && (
+            <>
+              <Link 
+                to="/datasets" 
+                className={isDatasetManagement ? 'active' : ''}
+                title="Upload and manage files (new and existing)"
+              >
+                📤 Dataset Manager
+              </Link>
+              <Link 
+                to="/data-manager" 
+                className={isDataManager ? 'active' : ''}
+                title="View database table - no uploads"
+              >
+                📊 Data Manager
+              </Link>
+              <ClearAllButton />
+            </>
+          )}
           <Link 
-            to="/datasets" 
-            className={isDatasetManagement ? 'active' : ''}
-            title="Upload and manage files (new and existing)"
+            to="/sessions" 
+            className={isSessions ? 'active' : ''}
+            title="Manage data sessions"
           >
-            📤 Dataset Manager
+            🔐 Sessions
           </Link>
-          <Link 
-            to="/data-manager" 
-            className={isDataManager ? 'active' : ''}
-            title="View database table - no uploads"
-          >
-            📊 Data Manager
-          </Link>
-          <ClearAllButton />
           <span style={{ color: 'var(--text-secondary)', marginLeft: '1rem' }}>
             {user?.email}
           </span>
@@ -128,7 +160,10 @@ function AppRoutes() {
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             
-            {/* Protected routes */}
+            {/* Sessions route (authenticated but doesn't require unlocked session) */}
+            <Route path="/sessions" element={<SessionsRoute><SessionsPage /></SessionsRoute>} />
+            
+            {/* Protected routes (require unlocked session) */}
             <Route path="/" element={<ProtectedRoute><DatasetsPage /></ProtectedRoute>} />
             <Route path="/datasets" element={<ProtectedRoute><DatasetsPage /></ProtectedRoute>} />
             <Route path="/datasets/:id" element={<ProtectedRoute><DatasetDetailPage /></ProtectedRoute>} />

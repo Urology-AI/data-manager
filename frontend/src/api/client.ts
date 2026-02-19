@@ -18,17 +18,29 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
-// Handle 401 errors (unauthorized) - redirect to login unless already on auth pages
+// Handle 401/403 errors (unauthorized/forbidden) - redirect appropriately
 const AUTH_PATHS = ['/login', '/register', '/forgot-password', '/reset-password']
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 || error.response?.status === 403) {
       const currentPath = window.location.pathname
       const isAuthPage = AUTH_PATHS.some((p) => currentPath.startsWith(p))
       if (!isAuthPage) {
-        localStorage.removeItem('token')
-        window.location.href = '/login'
+        const token = localStorage.getItem('token')
+        // If we have a token but get 401/403, might be missing session_id
+        // Check if error message suggests session needed
+        const errorDetail = error.response?.data?.detail || ''
+        const needsSession = errorDetail.includes('session') || errorDetail.includes('Session')
+        
+        if (token && needsSession) {
+          // Token exists but session not unlocked, go to sessions page
+          window.location.href = '/sessions'
+        } else {
+          // No token or other auth issue, go to login
+          localStorage.removeItem('token')
+          window.location.href = '/login'
+        }
       }
     }
     return Promise.reject(error)
@@ -259,10 +271,32 @@ export const authApi = {
     return response.data
   },
 
-  /** Session-based login: step 3 - submit password, get token */
-  sessionComplete: async (sessionId: string, password: string) => {
+  /** Session-based login: step 3 - complete login (no password), get token */
+  sessionComplete: async (sessionId: string) => {
     const response = await apiClient.post('/api/auth/session/complete', {
       session_id: sessionId,
+    })
+    return response.data
+  },
+
+  /** List all data sessions for the current user */
+  listDataSessions: async () => {
+    const response = await apiClient.get('/api/auth/data-sessions')
+    return response.data
+  },
+
+  /** Create a new data session with name and password */
+  createDataSession: async (name: string, password: string) => {
+    const response = await apiClient.post('/api/auth/data-sessions', {
+      name,
+      password,
+    })
+    return response.data
+  },
+
+  /** Unlock a data session with password, returns new token with session_id */
+  unlockDataSession: async (sessionId: string, password: string) => {
+    const response = await apiClient.post(`/api/auth/data-sessions/${sessionId}/unlock`, {
       password,
     })
     return response.data

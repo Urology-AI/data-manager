@@ -14,11 +14,10 @@ const inputStyle = {
 } as const
 
 export default function LoginPage() {
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [step, setStep] = useState<1 | 2>(1)
   const [email, setEmail] = useState('')
   const [sessionId, setSessionId] = useState('')
   const [otp, setOtp] = useState('')
-  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { loginWithToken, isAuthenticated, loading: authLoading } = useAuth()
@@ -26,7 +25,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      navigate('/datasets', { replace: true })
+      navigate('/sessions', { replace: true })
     }
   }, [isAuthenticated, authLoading, navigate])
 
@@ -46,32 +45,19 @@ export default function LoginPage() {
     }
   }
 
-  // Step 2: OTP from email
+  // Step 2: OTP from email -> complete login (no password), redirect to sessions
   const handleSubmitOtp = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
       await authApi.sessionVerifyOtp(sessionId, otp.trim())
-      setStep(3)
-    } catch (err: any) {
-      setError(getApiErrorMessage(err, 'Invalid code'))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Step 3: Password -> get token, complete login
-  const handleSubmitPassword = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      const data = await authApi.sessionComplete(sessionId, password)
+      // After OTP verified, complete login (no password needed)
+      const data = await authApi.sessionComplete(sessionId)
       await loginWithToken(data.access_token)
-      navigate('/datasets')
+      navigate('/sessions')
     } catch (err: any) {
-      setError(getApiErrorMessage(err, 'Login failed'))
+      setError(getApiErrorMessage(err, 'Invalid code or login failed'))
     } finally {
       setLoading(false)
     }
@@ -82,9 +68,6 @@ export default function LoginPage() {
     if (step === 2) {
       setStep(1)
       setOtp('')
-    } else if (step === 3) {
-      setStep(2)
-      setPassword('')
     }
   }
 
@@ -171,34 +154,6 @@ export default function LoginPage() {
         </form>
       )}
 
-      {step === 3 && (
-        <form onSubmit={handleSubmitPassword}>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-            Email verified. Enter your password to sign in.
-          </p>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem' }}>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              style={inputStyle}
-            />
-          </div>
-          <button type="submit" className="button" disabled={loading} style={{ width: '100%' }}>
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
-          <button
-            type="button"
-            onClick={handleBack}
-            className="button-secondary"
-            style={{ width: '100%', marginTop: '0.5rem' }}
-          >
-            Back
-          </button>
-        </form>
-      )}
 
       <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
         <Link to="/register" style={{ color: 'var(--primary)' }}>
