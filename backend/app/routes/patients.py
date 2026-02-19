@@ -1,9 +1,13 @@
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.db import get_db
-from app.models import Patient, Dataset
+from app.models import Patient, Dataset, User, DataSession
+from app.auth import get_current_session
+from typing import Tuple
+from app.audit import log_phi_access
+from app.middleware import get_request_metadata
 from app.schemas import PatientResponse, PatientUpdate, PaginatedResponse, FillRequest, PatientCreate
 from app.data.impute import fill_patients, get_missing_fields
 from app.data.column_matcher import suggest_column_mappings, auto_map_columns
@@ -16,16 +20,74 @@ from datetime import datetime
 router = APIRouter()
 
 
+def get_user_dataset_for_patient(dataset_id, db: Session, user: User, data_session: DataSession) -> Dataset:
+    """Get a dataset and verify it belongs to the current user and current session (for patient routes)."""
+    from app.db import DATABASE_URL
+    if DATABASE_URL.startswith("sqlite"):
+        dataset = db.query(Dataset).filter(Dataset.id == str(dataset_id)).first()
+    else:
+        dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    if DATABASE_URL.startswith("sqlite"):
+        if str(dataset.user_id) != str(user.id) or str(dataset.session_id) != str(data_session.id):
+            raise HTTPException(status_code=403, detail="Access denied")
+    else:
+        if dataset.user_id != user.id or dataset.session_id != data_session.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    return dataset
+
+
+def get_user_patient(patient_id, db: Session, user: User, data_session: DataSession) -> Patient:
+    """Get a patient and verify it belongs to the current user and session through its dataset."""
+    from app.db import DATABASE_URL
+    if DATABASE_URL.startswith("sqlite"):
+        patient = db.query(Patient).filter(Patient.id == str(patient_id)).first()
+    else:
+        patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    dataset = db.query(Dataset).filter(Dataset.id == patient.dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    if DATABASE_URL.startswith("sqlite"):
+        if str(dataset.user_id) != str(user.id) or str(dataset.session_id) != str(data_session.id):
+            raise HTTPException(status_code=403, detail="Access denied")
+    else:
+        if dataset.user_id != user.id or dataset.session_id != data_session.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    return patient
+
+
 @router.get("/dataset/{dataset_id}", response_model=PaginatedResponse)
 async def list_patients(
     dataset_id: UUID,
+    request: Request,
     search: Optional[str] = Query(None),
     missing_field: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """List patients in a dataset with filtering and pagination"""
+    current_user, data_session = session_context
+    get_user_dataset_for_patient(dataset_id, db, current_user, data_session)
+    
+    # Log PHI access for HIPAA compliance (viewing patient list)
+    metadata = get_request_metadata(request)
+    log_phi_access(
+        db_session=db,
+        user_id=current_user.id,
+        action="view",
+        resource_type="dataset",
+        resource_id=dataset_id,
+        patient_id=None,
+        field_accessed="patient_list",
+        ip_address=metadata["ip_address"],
+        user_agent=metadata["user_agent"]
+    )
+    
     query = db.query(Patient).filter(Patient.dataset_id == dataset_id)
     
     # Search filter
@@ -65,14 +127,22 @@ async def list_patients(
 @router.post("", response_model=PatientResponse)
 async def create_patient(
     patient_create: PatientCreate,
-    db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Create a new patient record"""
-    # Check if dataset exists
-    from app.models import Dataset
-    dataset = db.query(Dataset).filter(Dataset.id == patient_create.dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    current_user, data_session = session_context
+    get_user_dataset_for_patient(patient_create.dataset_id, db, current_user, data_session)
+    
+    # Check if PHI fields are being created
+    phi_fields_accessed = []
+    if patient_create.mrn:
+        phi_fields_accessed.append("mrn")
+    if patient_create.first_name:
+        phi_fields_accessed.append("first_name")
+    if patient_create.last_name:
+        phi_fields_accessed.append("last_name")
     
     # Check if patient_key already exists in dataset
     existing = db.query(Patient).filter(
@@ -91,18 +161,52 @@ async def create_patient(
     db.commit()
     db.refresh(patient)
     
+    # Log PHI access for HIPAA compliance
+    if phi_fields_accessed:
+        metadata = get_request_metadata(request)
+        for field in phi_fields_accessed:
+            log_phi_access(
+                db_session=db,
+                user_id=current_user.id,
+                action="create",
+                resource_type="patient",
+                resource_id=patient.id,
+                patient_id=patient.id,
+                field_accessed=field,
+                ip_address=metadata["ip_address"],
+                user_agent=metadata["user_agent"]
+            )
+    
     return patient
 
 
 @router.get("/all", response_model=PaginatedResponse)
 async def list_all_patients(
+    request: Request,
     search: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
-    """List all patients across all datasets (for Data Manager)"""
-    query = db.query(Patient)
+    """List all patients across all datasets for the current user in the current session"""
+    current_user, data_session = session_context
+    metadata = get_request_metadata(request)
+    log_phi_access(
+        db_session=db,
+        user_id=current_user.id,
+        action="view",
+        resource_type="patient",
+        resource_id=None,
+        patient_id=None,
+        field_accessed="patient_list_all",
+        ip_address=metadata["ip_address"],
+        user_agent=metadata["user_agent"]
+    )
+    query = db.query(Patient).join(Dataset).filter(
+        Dataset.user_id == current_user.id,
+        Dataset.session_id == data_session.id,
+    )
     
     # Search filter
     if search:
@@ -163,9 +267,11 @@ async def list_all_patients(
 @router.patch("/bulk-update")
 async def bulk_update_patients(
     updates: List[Dict[str, Any]],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Bulk update multiple patients"""
+    current_user, data_session = session_context
     updated_count = 0
     errors = []
     
@@ -176,10 +282,7 @@ async def bulk_update_patients(
             continue
         
         try:
-            patient = db.query(Patient).filter(Patient.id == UUID(patient_id)).first()
-            if not patient:
-                errors.append({"row": update_data, "error": f"Patient {patient_id} not found"})
-                continue
+            patient = get_user_patient(patient_id, db, current_user, data_session)
             
             # Handle extra_fields separately
             extra_fields_update = update_data.get("extra_fields")
@@ -214,12 +317,28 @@ async def bulk_update_patients(
 @router.get("/{patient_id}", response_model=PatientResponse)
 async def get_patient(
     patient_id: UUID,
-    db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Get a patient by ID"""
-    patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
+    current_user, data_session = session_context
+    patient = get_user_patient(patient_id, db, current_user, data_session)
+    
+    # Log PHI access for HIPAA compliance
+    metadata = get_request_metadata(request)
+    log_phi_access(
+        db_session=db,
+        user_id=current_user.id,
+        action="view",
+        resource_type="patient",
+        resource_id=patient_id,
+        patient_id=patient_id,
+        field_accessed="all",
+        ip_address=metadata["ip_address"],
+        user_agent=metadata["user_agent"]
+    )
+    
     return patient
 
 
@@ -227,12 +346,39 @@ async def get_patient(
 async def update_patient(
     patient_id: UUID,
     patient_update: PatientUpdate,
-    db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Update a patient's canonical fields"""
-    patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
+    current_user, data_session = session_context
+    patient = get_user_patient(patient_id, db, current_user, data_session)
+    
+    # Determine which PHI fields are being updated
+    update_data = patient_update.model_dump(exclude_unset=True)
+    phi_fields_accessed = []
+    if "mrn" in update_data:
+        phi_fields_accessed.append("mrn")
+    if "first_name" in update_data:
+        phi_fields_accessed.append("first_name")
+    if "last_name" in update_data:
+        phi_fields_accessed.append("last_name")
+    
+    # Log PHI access for HIPAA compliance
+    if phi_fields_accessed:
+        metadata = get_request_metadata(request)
+        for field in phi_fields_accessed:
+            log_phi_access(
+                db_session=db,
+                user_id=current_user.id,
+                action="update",
+                resource_type="patient",
+                resource_id=patient_id,
+                patient_id=patient_id,
+                field_accessed=field,
+                ip_address=metadata["ip_address"],
+                user_agent=metadata["user_agent"]
+            )
     
     update_data = patient_update.model_dump(exclude_unset=True)
     
@@ -272,9 +418,12 @@ async def update_patient(
 async def fill_missing_data(
     dataset_id: UUID,
     fill_request: FillRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Fill missing data for patients in a dataset"""
+    current_user, data_session = session_context
+    get_user_dataset_for_patient(dataset_id, db, current_user, data_session)
     patient_id_list = [str(pid) for pid in fill_request.patient_ids] if fill_request.patient_ids else None
     stats = fill_patients(db, str(dataset_id), fill_request.mode, patient_id_list)
     
@@ -284,9 +433,12 @@ async def fill_missing_data(
 @router.get("/dataset/{dataset_id}/missingness")
 async def get_missingness_summary(
     dataset_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Get missingness summary for a dataset"""
+    current_user, data_session = session_context
+    get_user_dataset_for_patient(dataset_id, db, current_user, data_session)
     patients = db.query(Patient).filter(Patient.dataset_id == dataset_id).all()
     
     canonical_fields = [
@@ -318,9 +470,11 @@ async def get_missingness_summary(
 async def upload_file_to_update_patients(
     file: UploadFile = File(...),
     match_by_mrn: bool = Query(True, description="Match existing patients by MRN"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Upload Excel or CSV file to update/add patient data. Matches existing patients by MRN if available."""
+    current_user, data_session = session_context
     filename_lower = file.filename.lower()
     is_excel = filename_lower.endswith('.xlsx') or filename_lower.endswith('.xls')
     is_csv = filename_lower.endswith('.csv')
@@ -357,11 +511,18 @@ async def upload_file_to_update_patients(
             detail=f"Could not read file: {str(e)}"
         )
     
-    # Get or create a default dataset for Data Manager uploads
-    default_dataset = db.query(Dataset).filter(Dataset.name == "Data Manager Uploads").first()
+    # Get or create a default dataset for Data Manager uploads (per user, per session)
+    default_dataset_name = f"Data Manager Uploads - {current_user.email}"
+    default_dataset = db.query(Dataset).filter(
+        Dataset.name == default_dataset_name,
+        Dataset.user_id == current_user.id,
+        Dataset.session_id == data_session.id,
+    ).first()
     if not default_dataset:
         default_dataset = Dataset(
-            name="Data Manager Uploads",
+            user_id=current_user.id,
+            session_id=data_session.id,
+            name=default_dataset_name,
             source_filename=file.filename,
             stored_path=""
         )
@@ -419,12 +580,14 @@ async def upload_file_to_update_patients(
             else:
                 patient_key = f"row_{row_idx + 1}"
         
-        # Find existing patient: first by MRN (across all datasets), then by patient_key in default dataset
+        # Find existing patient: first by MRN (across user's datasets), then by patient_key in default dataset
         existing_patient = None
         if match_by_mrn and mrn_value:
-            # Match by MRN across ALL datasets
-            existing_patient = db.query(Patient).filter(
-                Patient.mrn == mrn_value
+            # Match by MRN across user's datasets in current session only
+            existing_patient = db.query(Patient).join(Dataset).filter(
+                Patient.mrn == mrn_value,
+                Dataset.user_id == current_user.id,
+                Dataset.session_id == data_session.id,
             ).first()
         
         # If not found by MRN, try patient_key in default dataset
@@ -567,16 +730,16 @@ async def upload_file_to_update_patients(
 async def add_custom_field_to_patients(
     field_name: str = Query(..., description="Name of the custom field to add"),
     default_value: Optional[str] = Query(None, description="Default value for existing patients"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
-    """Add a custom field to all patients (stored in extra_fields)"""
-    # Validate field name
+    """Add a custom field to all patients for the current session (stored in extra_fields)"""
+    current_user, data_session = session_context
     if not field_name or not field_name.strip():
         raise HTTPException(status_code=400, detail="Field name cannot be empty")
     
     field_name = field_name.strip()
     
-    # Check if it's a canonical field (shouldn't be added as custom)
     schema_fields = set(PatientCreate.model_fields.keys())
     if field_name in schema_fields:
         raise HTTPException(
@@ -584,8 +747,10 @@ async def add_custom_field_to_patients(
             detail=f"Field '{field_name}' is a canonical field and cannot be added as a custom field"
         )
     
-    # Add field to all patients
-    patients = db.query(Patient).all()
+    patients = db.query(Patient).join(Dataset).filter(
+        Dataset.user_id == current_user.id,
+        Dataset.session_id == data_session.id,
+    ).all()
     updated_count = 0
     
     for patient in patients:
@@ -609,16 +774,20 @@ async def add_custom_field_to_patients(
 @router.delete("/remove-custom-field")
 async def remove_custom_field_from_patients(
     field_name: str = Query(..., description="Name of the custom field to remove"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
-    """Remove a custom field from all patients"""
+    """Remove a custom field from all patients for the current session"""
+    current_user, data_session = session_context
     if not field_name or not field_name.strip():
         raise HTTPException(status_code=400, detail="Field name cannot be empty")
     
     field_name = field_name.strip()
     
-    # Remove field from all patients
-    patients = db.query(Patient).all()
+    patients = db.query(Patient).join(Dataset).filter(
+        Dataset.user_id == current_user.id,
+        Dataset.session_id == data_session.id,
+    ).all()
     removed_count = 0
     
     for patient in patients:
@@ -641,10 +810,15 @@ async def remove_custom_field_from_patients(
 
 @router.get("/custom-fields")
 async def get_custom_fields(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
-    """Get list of all custom fields (from extra_fields) across all patients"""
-    patients = db.query(Patient).all()
+    """Get list of all custom fields (from extra_fields) for the current session's patients"""
+    current_user, data_session = session_context
+    patients = db.query(Patient).join(Dataset).filter(
+        Dataset.user_id == current_user.id,
+        Dataset.session_id == data_session.id,
+    ).all()
     custom_fields = set()
     
     for patient in patients:

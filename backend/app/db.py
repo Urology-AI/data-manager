@@ -6,7 +6,20 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine import Engine
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/datamanagerdb")
+# Support both PostgreSQL and SQLite for ephemeral/session-based storage
+# Use SQLite if EPHEMERAL_STORAGE=true or if DATABASE_URL is set to sqlite://
+# Default to PostgreSQL for backward compatibility
+USE_EPHEMERAL_STORAGE = os.getenv("EPHEMERAL_STORAGE", "false").lower() == "true"
+DEFAULT_DATABASE_URL = os.getenv("DATABASE_URL")
+
+if USE_EPHEMERAL_STORAGE and not DEFAULT_DATABASE_URL:
+    # Use SQLite file-based database for ephemeral storage
+    # File will be cleared on container restart or via API
+    DATABASE_URL = "sqlite:///./data_manager_session.db"
+elif DEFAULT_DATABASE_URL and DEFAULT_DATABASE_URL.startswith("sqlite"):
+    DATABASE_URL = DEFAULT_DATABASE_URL
+else:
+    DATABASE_URL = DEFAULT_DATABASE_URL or "postgresql://postgres:postgres@localhost:5432/datamanagerdb"
 
 Base = declarative_base()
 
@@ -93,7 +106,17 @@ def receive_before_cursor_execute(conn, cursor, statement, parameters, context, 
     return redacted_statement, parameters
 
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+# Configure engine based on database type
+if DATABASE_URL.startswith("sqlite"):
+    # SQLite-specific configuration for ephemeral storage
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},  # Needed for SQLite
+        pool_pre_ping=True
+    )
+else:
+    # PostgreSQL configuration
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

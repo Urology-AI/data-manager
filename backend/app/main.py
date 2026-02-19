@@ -1,7 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.db import engine, Base, DATABASE_URL
-from app.routes import datasets, patients, fields
+from app.routes import datasets, patients, fields, session, auth
+from app.middleware import AuditMiddleware
+from app.audit import AuditLog
 import logging
 from alembic import command
 from alembic.config import Config
@@ -76,13 +78,70 @@ def run_migrations_automatically():
 run_migrations_automatically()
 
 # Create tables (fallback if migrations don't cover everything)
+# This includes User, Dataset, Patient, and AuditLog tables
+# AuditLog uses the same Base, so it will be created automatically
 Base.metadata.create_all(bind=engine)
+
+# Auto-clear data on startup if EPHEMERAL_STORAGE and CLEAR_ON_STARTUP are enabled
+CLEAR_ON_STARTUP = os.getenv("CLEAR_ON_STARTUP", "false").lower() == "true"
+USE_EPHEMERAL_STORAGE = os.getenv("EPHEMERAL_STORAGE", "false").lower() == "true"
+
+if CLEAR_ON_STARTUP or USE_EPHEMERAL_STORAGE:
+    try:
+        from app.db import SessionLocal
+        from app.models import Dataset, Patient
+        from sqlalchemy import delete
+        from pathlib import Path
+        
+        logger.info("🔄 Clearing all data on startup (ephemeral/session mode)...")
+        db = SessionLocal()
+        try:
+            # Delete all patients
+            patient_count = db.query(Patient).count()
+            db.execute(delete(Patient))
+            
+            # Delete all datasets and their files
+            datasets = db.query(Dataset).all()
+            dataset_count = len(datasets)
+            upload_dir = Path("uploads")
+            
+            for dataset in datasets:
+                file_path = Path(dataset.stored_path)
+                if file_path.exists():
+                    try:
+                        file_path.unlink()
+                    except Exception:
+                        pass
+            
+            db.execute(delete(Dataset))
+            db.commit()
+            
+            # Clean upload directory
+            if upload_dir.exists():
+                for file_path in upload_dir.iterdir():
+                    if file_path.is_file():
+                        try:
+                            file_path.unlink()
+                        except Exception:
+                            pass
+            
+            logger.info(f"✅ Cleared {dataset_count} datasets and {patient_count} patients on startup")
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"⚠️  Could not clear data on startup: {e}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"⚠️  Could not initialize data clearing: {e}")
 
 app = FastAPI(
     title="Data Manager API",
     description="API for managing patient data - upload files, manage columns, and edit records",
     version="1.0.0"
 )
+
+# Audit middleware (must be first to capture request metadata)
+app.add_middleware(AuditMiddleware)
 
 # CORS middleware
 app.add_middleware(
@@ -94,9 +153,11 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(datasets.router, prefix="/api/datasets", tags=["datasets"])
 app.include_router(patients.router, prefix="/api/patients", tags=["patients"])
 app.include_router(fields.router, prefix="/api", tags=["fields"])
+app.include_router(session.router, prefix="/api/session", tags=["session"])
 
 
 @app.get("/health")

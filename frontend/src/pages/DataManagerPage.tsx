@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { patientsApi, fieldsApi } from '../api/client'
+import { getApiErrorMessage } from '../api/errors'
 import { Patient, PaginatedResponse } from '../types'
 import ExcelTable from '../components/ExcelTable'
 import '../App.css'
@@ -139,21 +140,7 @@ function DataManagerPage() {
           await loadPatientData()
         } catch (error: any) {
           console.error('Failed to update patient:', error)
-          
-          let errorMsg = 'Failed to update patient'
-          if (error.response?.data) {
-            if (Array.isArray(error.response.data.detail)) {
-              errorMsg = error.response.data.detail.map((d: any) => d.msg || d).join(', ')
-            } else if (typeof error.response.data.detail === 'string') {
-              errorMsg = error.response.data.detail
-            } else {
-              errorMsg = JSON.stringify(error.response.data.detail)
-            }
-          } else if (error.message) {
-            errorMsg = error.message
-          }
-          
-          alert(`Failed to update patient: ${errorMsg}`)
+          alert(`Failed to update patient: ${getApiErrorMessage(error, 'Unknown error')}`)
         }
       }
     }, 500)

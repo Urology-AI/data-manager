@@ -4,6 +4,8 @@ A full-stack application for managing patient data - upload CSV/Excel files, map
 
 ## Features
 
+- **HIPAA Compliant**: Encryption at rest for PHI, audit logging, secure access controls
+- **User Authentication**: Secure login, registration, password reset with email verification
 - **Data Manager**: Upload CSV/Excel files, manage columns, and edit patient data all in one place
 - **CSV/Excel Dataset Upload**: Upload patient datasets in CSV or Excel format
 - **MRN-based Matching**: Automatically link patient data across files using Medical Record Numbers
@@ -33,6 +35,29 @@ A full-stack application for managing patient data - upload CSV/Excel files, map
 - React Hook Form
 - Zod
 - Axios
+
+## HIPAA Compliance
+
+This application implements HIPAA-compliant security measures:
+
+- **Encryption at Rest**: All PHI fields (MRN, first_name, last_name) are encrypted using AES-128
+- **Encryption in Transit**: HTTPS/TLS required (configure at deployment)
+- **Access Controls**: User authentication and authorization required
+- **Audit Logging**: All PHI access is logged with user, timestamp, IP address, and action
+- **Secure Key Management**: Encryption keys stored as environment variables
+
+**⚠️ IMPORTANT**: Before deploying to production:
+
+1. Generate an encryption key:
+   ```bash
+   python backend/generate_encryption_key.py
+   ```
+
+2. Set required environment variables (see [HIPAA_COMPLIANCE.md](HIPAA_COMPLIANCE.md))
+
+3. Configure HTTPS/TLS for encryption in transit
+
+See [HIPAA_COMPLIANCE.md](HIPAA_COMPLIANCE.md) for detailed compliance information.
 
 ## Quick Start
 
@@ -82,9 +107,11 @@ A full-stack application for managing patient data - upload CSV/Excel files, map
      docker run -d --name postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=datamanagerdb -p 5432:5432 postgres:15-alpine
      ```
 
-4. **Set environment variable:**
+4. **Set environment variables:**
    ```bash
    export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/datamanagerdb
+   export ENCRYPTION_KEY=$(python backend/generate_encryption_key.py | grep ENCRYPTION_KEY | cut -d'"' -f2)
+   export SECRET_KEY="your-secret-key-for-jwt"
    ```
 
 5. **Start the server:**

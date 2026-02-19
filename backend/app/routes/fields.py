@@ -2,8 +2,10 @@
 API endpoint to return canonical field definitions dynamically
 This allows the frontend to automatically adapt when new fields are added to the Patient model
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.schemas import PatientCreate
+from app.auth import get_current_active_user
+from app.models import User
 from typing import Dict, Any, List
 import inspect
 from datetime import datetime
@@ -80,7 +82,9 @@ def get_field_info(field_name: str, field_info: Any) -> Dict[str, Any]:
 
 
 @router.get("/canonical-fields", response_model=Dict[str, Any])
-async def get_canonical_fields():
+async def get_canonical_fields(
+    current_user: User = Depends(get_current_active_user)
+):
     """
     Return all canonical fields dynamically from the PatientCreate schema.
     This endpoint allows the frontend to automatically adapt when new fields are added.

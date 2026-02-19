@@ -9,6 +9,32 @@ const apiClient = axios.create({
   },
 })
 
+// Add token to requests if available
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// Handle 401 errors (unauthorized) - redirect to login unless already on auth pages
+const AUTH_PATHS = ['/login', '/register', '/forgot-password', '/reset-password']
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      const currentPath = window.location.pathname
+      const isAuthPage = AUTH_PATHS.some((p) => currentPath.startsWith(p))
+      if (!isAuthPage) {
+        localStorage.removeItem('token')
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
 export default apiClient
 
 export const datasetsApi = {
@@ -192,6 +218,100 @@ export const patientsApi = {
 export const fieldsApi = {
   getCanonicalFields: async () => {
     const response = await apiClient.get('/api/canonical-fields')
+    return response.data
+  },
+}
+
+export const sessionApi = {
+  clearAll: async () => {
+    const response = await apiClient.delete('/api/session/clear-all')
+    return response.data
+  },
+  
+  getStats: async () => {
+    const response = await apiClient.get('/api/session/stats')
+    return response.data
+  },
+}
+
+export const authApi = {
+  register: async (email: string, password: string, fullName?: string) => {
+    const response = await apiClient.post('/api/auth/register', {
+      email,
+      password,
+      full_name: fullName,
+    })
+    return response.data
+  },
+
+  /** Session-based login: step 1 - submit email, create session, send OTP */
+  sessionStart: async (email: string) => {
+    const response = await apiClient.post('/api/auth/session/start', { email })
+    return response.data
+  },
+
+  /** Session-based login: step 2 - verify OTP from email */
+  sessionVerifyOtp: async (sessionId: string, otp: string) => {
+    const response = await apiClient.post('/api/auth/session/verify-otp', {
+      session_id: sessionId,
+      otp,
+    })
+    return response.data
+  },
+
+  /** Session-based login: step 3 - submit password, get token */
+  sessionComplete: async (sessionId: string, password: string) => {
+    const response = await apiClient.post('/api/auth/session/complete', {
+      session_id: sessionId,
+      password,
+    })
+    return response.data
+  },
+
+  /** Legacy: login with email + password in one step (no OTP) */
+  login: async (email: string, password: string) => {
+    const response = await apiClient.post('/api/auth/login-json', {
+      email,
+      password,
+    })
+    return response.data
+  },
+
+  getCurrentUser: async () => {
+    const response = await apiClient.get('/api/auth/me')
+    return response.data
+  },
+
+  forgotPassword: async (email: string) => {
+    const response = await apiClient.post('/api/auth/forgot-password', { email })
+    return response.data
+  },
+
+  resetPassword: async (token: string, newPassword: string) => {
+    const response = await apiClient.post('/api/auth/reset-password', {
+      token,
+      new_password: newPassword,
+    })
+    return response.data
+  },
+
+  changePassword: async (currentPassword: string, newPassword: string) => {
+    const response = await apiClient.post('/api/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    })
+    return response.data
+  },
+
+  verifyEmail: async (token: string) => {
+    const response = await apiClient.get('/api/auth/verify-email', {
+      params: { token },
+    })
+    return response.data
+  },
+
+  resendVerification: async (email: string) => {
+    const response = await apiClient.post('/api/auth/resend-verification', { email })
     return response.data
   },
 }

@@ -135,3 +135,85 @@ class ReprocessCheckResponse(BaseModel):
     total_rows_in_file: int
     total_patients_in_db: int
     rows_with_missing_data: List[Dict[str, Any]]  # Sample rows with missing data
+
+
+# Authentication schemas
+class UserRegister(BaseModel):
+    email: str = Field(..., pattern=r'^[^@]+@[^@]+\.[^@]+$')
+    password: str = Field(..., min_length=8)
+    full_name: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: UUID
+    email: str
+    full_name: Optional[str] = None
+    is_active: bool
+    is_verified: bool
+    created_at: datetime
+
+
+class PasswordResetRequest(BaseModel):
+    email: str
+
+
+class PasswordReset(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=8)
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8)
+
+
+# Session-based login (email -> session + OTP -> verify OTP -> password -> access)
+class SessionStartRequest(BaseModel):
+    email: str = Field(..., pattern=r'^[^@]+@[^@]+\.[^@]+$')
+
+
+class SessionStartResponse(BaseModel):
+    session_id: str
+    message: str = "Check your email for the verification code"
+
+
+class VerifyOtpRequest(BaseModel):
+    session_id: str
+    otp: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class VerifyOtpResponse(BaseModel):
+    verified: bool = True
+    message: str = "Email verified. Signing you in..."
+
+
+class CompleteLoginRequest(BaseModel):
+    session_id: str
+
+
+# DataSession: list sessions, create, unlock (each has its own encryption key)
+class DataSessionCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=8)
+
+
+class DataSessionResponse(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+
+
+class UnlockSessionRequest(BaseModel):
+    password: str

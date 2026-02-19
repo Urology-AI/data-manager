@@ -8,12 +8,29 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from app.db import get_db
-from app.models import Dataset, Patient
+from app.models import Dataset, Patient, User, DataSession
+from app.auth import get_current_session
+from typing import Tuple
 from app.schemas import DatasetResponse, ColumnMappingRequest, DetectedColumnsResponse, PatientCreate, ReprocessCheckResponse
 from app.data.column_matcher import suggest_column_mappings, auto_map_columns
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def get_user_dataset(dataset_id: uuid.UUID, db: Session, user: User, data_session: DataSession) -> Dataset:
+    """Get a dataset and verify it belongs to the current user and current session."""
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    from app.db import DATABASE_URL
+    if DATABASE_URL.startswith("sqlite"):
+        if str(dataset.user_id) != str(user.id) or str(dataset.session_id) != str(data_session.id):
+            raise HTTPException(status_code=403, detail="Access denied")
+    else:
+        if dataset.user_id != user.id or dataset.session_id != data_session.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    return dataset
 
 # Try to import dateutil parser for flexible date parsing
 try:
@@ -81,8 +98,10 @@ except ImportError:
 async def upload_dataset(
     file: UploadFile = File(...),
     data_type: str = Query("generic", description="Type of data: 'epsa', 'generic', or 'custom'"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
+    current_user, data_session = session_context
     """Upload a CSV or Excel dataset file. Select data type to use appropriate column matching."""
     # Validate file type
     filename_lower = file.filename.lower()
@@ -147,8 +166,10 @@ async def upload_dataset(
                 detail="File appears to be empty or invalid"
             )
         
-        # Create dataset record
+        # Create dataset record (scoped to current unlocked session)
         dataset = Dataset(
+            user_id=current_user.id,
+            session_id=data_session.id,
             name=file.filename,
             source_filename=file.filename,
             stored_path=str(file_path),
@@ -172,12 +193,12 @@ async def upload_dataset(
 @router.get("/{dataset_id}/columns", response_model=DetectedColumnsResponse)
 async def get_dataset_columns(
     dataset_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Get detected columns from uploaded CSV/Excel file"""
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    current_user, data_session = session_context
+    dataset = get_user_dataset(dataset_id, db, current_user, data_session)
     
     file_path = Path(dataset.stored_path)
     filename_lower = file_path.name.lower()
@@ -214,12 +235,12 @@ async def get_dataset_columns(
 @router.get("/{dataset_id}/suggest-mappings")
 async def suggest_column_mappings_endpoint(
     dataset_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Intelligently suggest column mappings based on column names"""
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    current_user, data_session = session_context
+    dataset = get_user_dataset(dataset_id, db, current_user, data_session)
     
     # Get columns
     file_path = Path(dataset.stored_path)
@@ -281,12 +302,12 @@ async def suggest_column_mappings_endpoint(
 async def map_columns(
     dataset_id: uuid.UUID,
     mapping: ColumnMappingRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Map CSV/Excel columns to canonical fields and create patient records"""
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    current_user, data_session = session_context
+    dataset = get_user_dataset(dataset_id, db, current_user, data_session)
     
     # Validate mapping is not empty
     if not mapping.column_map or len(mapping.column_map) == 0:
@@ -664,14 +685,13 @@ async def map_columns(
 @router.get("/{dataset_id}", response_model=DatasetResponse)
 async def get_dataset(
     dataset_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Get a dataset by ID"""
     from sqlalchemy import func
-    
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    current_user, data_session = session_context
+    dataset = get_user_dataset(dataset_id, db, current_user, data_session)
     
     # Add patient count
     patient_count = db.query(func.count(Patient.id)).filter(
@@ -693,12 +713,16 @@ async def get_dataset(
 
 @router.get("", response_model=List[DatasetResponse])
 async def list_datasets(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
-    """List all datasets"""
+    """List all datasets for the current user in the current unlocked session"""
     from sqlalchemy import func
-    
-    datasets = db.query(Dataset).order_by(Dataset.created_at.desc()).all()
+    current_user, data_session = session_context
+    datasets = db.query(Dataset).filter(
+        Dataset.user_id == current_user.id,
+        Dataset.session_id == data_session.id,
+    ).order_by(Dataset.created_at.desc()).all()
     
     # Add patient count for each dataset
     result = []
@@ -725,12 +749,12 @@ async def list_datasets(
 @router.get("/{dataset_id}/reprocess-check", response_model=ReprocessCheckResponse)
 async def reprocess_check(
     dataset_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Check for missing columns and data by comparing raw file with database"""
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    current_user, data_session = session_context
+    dataset = get_user_dataset(dataset_id, db, current_user, data_session)
     
     if not dataset.column_map:
         raise HTTPException(
@@ -875,12 +899,12 @@ async def reprocess_check(
 @router.post("/{dataset_id}/add-unmapped-to-extra-fields")
 async def add_unmapped_to_extra_fields(
     dataset_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """For processed datasets: Add unmapped CSV columns to extra_fields automatically"""
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    current_user, data_session = session_context
+    dataset = get_user_dataset(dataset_id, db, current_user, data_session)
     
     # Check if dataset has patients (is processed)
     from sqlalchemy import func
@@ -1003,12 +1027,12 @@ async def add_unmapped_to_extra_fields(
 @router.post("/{dataset_id}/reprocess-update")
 async def reprocess_update(
     dataset_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Re-process dataset to update missing data from the raw file"""
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    current_user, data_session = session_context
+    dataset = get_user_dataset(dataset_id, db, current_user, data_session)
     
     if not dataset.column_map:
         raise HTTPException(
@@ -1175,16 +1199,15 @@ async def reprocess_update(
 @router.delete("/{dataset_id}")
 async def delete_dataset(
     dataset_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
 ):
     """Delete a dataset if it has no patients (not yet processed)"""
     from sqlalchemy import func
     import os
-    
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
+    current_user, data_session = session_context
+    dataset = get_user_dataset(dataset_id, db, current_user, data_session)
+
     # Check if dataset has patients
     patient_count = db.query(func.count(Patient.id)).filter(
         Patient.dataset_id == dataset_id
@@ -1216,13 +1239,13 @@ async def delete_dataset(
 async def get_raw_data(
     dataset_id: uuid.UUID,
     db: Session = Depends(get_db),
+    session_context: Tuple[User, DataSession] = Depends(get_current_session),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0)
 ):
     """Get raw data from the uploaded file (before mapping)"""
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    current_user, data_session = session_context
+    dataset = get_user_dataset(dataset_id, db, current_user, data_session)
     
     file_path = Path(dataset.stored_path)
     filename_lower = file_path.name.lower()
