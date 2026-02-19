@@ -262,11 +262,10 @@ export const authApi = {
     return response.data
   },
 
-  /** Session-based login: step 2 - verify OTP from email */
-  sessionVerifyOtp: async (sessionId: string, otp: string) => {
-    const response = await apiClient.post('/api/auth/session/verify-otp', {
+  /** Session-based login: step 2 - verify link from email */
+  sessionVerifyLink: async (sessionId: string) => {
+    const response = await apiClient.post('/api/auth/session/verify-link', {
       session_id: sessionId,
-      otp,
     })
     return response.data
   },

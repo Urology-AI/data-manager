@@ -16,8 +16,6 @@ const inputStyle = {
 export default function LoginPage() {
   const [step, setStep] = useState<1 | 2>(1)
   const [email, setEmail] = useState('')
-  const [sessionId, setSessionId] = useState('')
-  const [otp, setOtp] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { loginWithToken, isAuthenticated, loading: authLoading } = useAuth()
@@ -36,8 +34,10 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const data = await authApi.sessionStart(email.trim().toLowerCase())
-      setSessionId(data.session_id)
-      setStep(2)
+      // Store session info for the redirect handler to use
+      localStorage.setItem('authSessionId', data.session_id)
+      localStorage.setItem('authEmail', email.trim().toLowerCase())
+      setStep(2) // Move to the "Check your email" step
     } catch (err: any) {
       setError(getApiErrorMessage(err, 'Failed to send code'))
     } finally {
@@ -45,31 +45,6 @@ export default function LoginPage() {
     }
   }
 
-  // Step 2: OTP from email -> complete login (no password), redirect to sessions
-  const handleSubmitOtp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      await authApi.sessionVerifyOtp(sessionId, otp.trim())
-      // After OTP verified, complete login (no password needed)
-      const data = await authApi.sessionComplete(sessionId)
-      await loginWithToken(data.access_token)
-      navigate('/sessions')
-    } catch (err: any) {
-      setError(getApiErrorMessage(err, 'Invalid code or login failed'))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleBack = () => {
-    setError('')
-    if (step === 2) {
-      setStep(1)
-      setOtp('')
-    }
-  }
 
   return (
     <div className="card" style={{ maxWidth: '400px', margin: '2rem auto' }}>
@@ -101,57 +76,15 @@ export default function LoginPage() {
       )}
 
       {step === 2 && (
-        <form onSubmit={handleSubmitOtp}>
+        <div>
+          <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>Check your email</h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-            Enter the 6-digit code we sent to <strong>{email}</strong>.
+            We've sent a sign-in link to <strong>{email}</strong>.
           </p>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem' }}>Verification code</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="000000"
-              maxLength={6}
-              style={{ ...inputStyle, letterSpacing: '0.5rem', textAlign: 'center' }}
-            />
-          </div>
-          <button type="submit" className="button" disabled={loading || otp.length !== 6} style={{ width: '100%' }}>
-            {loading ? 'Verifying...' : 'Verify code'}
-          </button>
-          <p style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
-            Didn’t get the code?{' '}
-            <button
-              type="button"
-              onClick={() => {
-                setError('')
-                setLoading(true)
-                authApi.sessionStart(email).then((data) => {
-                  setSessionId(data.session_id)
-                  setError('')
-                  setLoading(false)
-                }).catch((err: any) => {
-                  setError(getApiErrorMessage(err, 'Failed to resend'))
-                  setLoading(false)
-                })
-              }}
-              disabled={loading}
-              style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', padding: 0 }}
-            >
-              Resend code
-            </button>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Click the link in the email to complete your login.
           </p>
-          <button
-            type="button"
-            onClick={handleBack}
-            className="button-secondary"
-            style={{ width: '100%', marginTop: '0.5rem' }}
-          >
-            Back
-          </button>
-        </form>
+        </div>
       )}
 
 

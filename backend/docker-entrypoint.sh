@@ -3,10 +3,23 @@ set -e
 
 echo "🚀 Starting backend..."
 
+# Create Firebase credentials file from environment variable if it exists
+if [ -n "$FIREBASE_CREDENTIALS_JSON" ] && [ -n "$FIREBASE_SERVICE_ACCOUNT_KEY_PATH" ]; then
+    echo "📦 Creating Firebase credentials file..."
+    echo "$FIREBASE_CREDENTIALS_JSON" > "$FIREBASE_SERVICE_ACCOUNT_KEY_PATH"
+    echo "✅ Firebase credentials file created at $FIREBASE_SERVICE_ACCOUNT_KEY_PATH"
+fi
+
+
 # Wait for PostgreSQL to be ready
 if [ -n "$DATABASE_URL" ] && [[ "$DATABASE_URL" == postgresql* ]]; then
     echo "⏳ Waiting for PostgreSQL to be ready..."
-    until pg_isready -h postgres -U postgres > /dev/null 2>&1; do
+
+    # Extract host and user from DATABASE_URL (e.g., postgresql://user:pass@host:port/db)
+    DB_HOST=$(echo $DATABASE_URL | sed -n 's|.*@\([^:]*\):.*|\1|p')
+    DB_USER=$(echo $DATABASE_URL | sed -n 's|postgresql://\([^:]*\):.*|\1|p')
+
+    until pg_isready -h "$DB_HOST" -U "$DB_USER" > /dev/null 2>&1; do
         echo "   PostgreSQL is unavailable - sleeping"
         sleep 1
     done

@@ -11,6 +11,7 @@ import RegisterPage from './pages/RegisterPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import SessionsPage from './pages/SessionsPage'
+import HandleAuthRedirectPage from './pages/HandleAuthRedirectPage'
 import { sessionApi } from './api/client'
 import { getApiErrorMessage } from './api/errors'
 import './App.css'
@@ -159,6 +160,7 @@ function AppRoutes() {
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/auth/callback" element={<HandleAuthRedirectPage />} />
             
             {/* Sessions route (authenticated but doesn't require unlocked session) */}
             <Route path="/sessions" element={<SessionsRoute><SessionsPage /></SessionsRoute>} />
