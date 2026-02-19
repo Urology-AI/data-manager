@@ -143,10 +143,18 @@ app = FastAPI(
 # Audit middleware (must be first to capture request metadata)
 app.add_middleware(AuditMiddleware)
 
-# CORS middleware
+# CORS middleware - support both local development and production
+cors_origins_env = os.getenv("CORS_ORIGINS", "")
+if cors_origins_env:
+    # Parse comma-separated origins from environment variable
+    cors_origins = [origin.strip() for origin in cors_origins_env.split(",")]
+else:
+    # Default to localhost for development
+    cors_origins = ["http://localhost:5173", "http://localhost:3000"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

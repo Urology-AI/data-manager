@@ -6,7 +6,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     plan: starter  # Change to 'standard' or 'pro' for production
-    region: oregon  # Choose your preferred region
+    region: oregon  # Choose your preferred region: oregon, frankfurt, singapore
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -22,6 +22,8 @@ services:
         value: false
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: 1440
+      - key: CORS_ORIGINS
+        value: https://data-manager-frontend.onrender.com
     healthCheckPath: /health
     autoDeploy: true
 
@@ -38,7 +40,6 @@ services:
           type: web
           property: host
         # This will be set to: https://data-manager-backend.onrender.com
-        # You may need to manually update this to include /api if using nginx proxy
     routes:
       - type: rewrite
         source: /*
