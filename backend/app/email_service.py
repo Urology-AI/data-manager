@@ -16,8 +16,8 @@ MAIL_FROM = os.getenv("MAIL_FROM", "noreply@datamanager.com")
 MAIL_FROM_NAME = os.getenv("MAIL_FROM_NAME", "Data Manager")
 MAIL_PORT = int(os.getenv("MAIL_PORT", "587"))
 MAIL_SERVER = os.getenv("MAIL_SERVER", "smtp.gmail.com")
-MAIL_TLS = os.getenv("MAIL_TLS", "true").lower() == "true"
-MAIL_SSL = os.getenv("MAIL_SSL", "false").lower() == "true"
+MAIL_STARTTLS = os.getenv("MAIL_TLS", "true").lower() == "true"
+MAIL_SSL_TLS = os.getenv("MAIL_SSL", "false").lower() == "true"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 # Configure FastMail
@@ -27,8 +27,8 @@ conf = ConnectionConfig(
     MAIL_FROM=MAIL_FROM,
     MAIL_PORT=MAIL_PORT,
     MAIL_SERVER=MAIL_SERVER,
-    MAIL_TLS=MAIL_TLS,
-    MAIL_SSL=MAIL_SSL,
+    MAIL_STARTTLS=MAIL_STARTTLS,
+    MAIL_SSL_TLS=MAIL_SSL_TLS,
     USE_CREDENTIALS=True,
     VALIDATE_CERTS=True
 )
