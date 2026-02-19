@@ -15,6 +15,9 @@ fi
 if [ -n "$DATABASE_URL" ] && [[ "$DATABASE_URL" == postgresql* ]]; then
     echo "⏳ Waiting for PostgreSQL to be ready..."
 
+    # Export the DATABASE_URL so it's available to alembic
+    export DATABASE_URL
+
     # Extract host and user from DATABASE_URL (e.g., postgresql://user:pass@host:port/db)
     DB_HOST=$(echo $DATABASE_URL | sed -n 's|.*@\([^:]*\):.*|\1|p')
     DB_USER=$(echo $DATABASE_URL | sed -n 's|postgresql://\([^:]*\):.*|\1|p')
