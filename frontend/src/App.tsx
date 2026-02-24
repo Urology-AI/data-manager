@@ -1,11 +1,13 @@
 import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import { useState } from 'react'
+import { FolderOpen, Eye, Server, Lock, Trash2, RefreshCw } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import DatasetsPage from './pages/DatasetsPage'
 import DatasetDetailPage from './pages/DatasetDetailPage'
 import PatientsPage from './pages/PatientsPage'
 import DataViewerPage from './pages/DataViewerPage'
 import DataManagerPage from './pages/DataManagerPage'
+import DataSourceManager from './pages/DataSourceManager'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
@@ -80,8 +82,24 @@ function ClearAllButton() {
       disabled={isClearing}
       className="button-danger"
       title="Clear all data and start a new session"
+      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
     >
-      {isClearing ? '🔄 Clearing...' : showConfirm ? '⚠️ Confirm Clear All' : '🗑️ Clear All'}
+      {isClearing ? (
+        <>
+          <RefreshCw size={16} className="animate-spin" />
+          Clearing...
+        </>
+      ) : showConfirm ? (
+        <>
+          <Trash2 size={16} />
+          Confirm Clear All
+        </>
+      ) : (
+        <>
+          <Trash2 size={16} />
+          Clear All
+        </>
+      )}
     </button>
   )
 }
@@ -93,6 +111,7 @@ function Navigation() {
     location.pathname === '/' ||
     location.pathname.startsWith('/datasets')
   const isDataManager = location.pathname === '/data-manager'
+  const isDataSourceManager = location.pathname === '/data-sources'
   const isSessions = location.pathname === '/sessions'
 
   if (!isAuthenticated) {
@@ -112,15 +131,28 @@ function Navigation() {
                 to="/datasets" 
                 className={isDatasetManagement ? 'active' : ''}
                 title="Upload and manage files (new and existing)"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
               >
-                📤 Dataset Manager
+                <FolderOpen size={16} />
+                Dataset Store
               </Link>
               <Link 
                 to="/data-manager" 
                 className={isDataManager ? 'active' : ''}
                 title="View database table - no uploads"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
               >
-                📊 Data Manager
+                <Eye size={16} />
+                Data Viewer
+              </Link>
+              <Link 
+                to="/data-sources" 
+                className={isDataSourceManager ? 'active' : ''}
+                title="Manage all data sources and tables"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <Server size={16} />
+                Data Sources
               </Link>
               <ClearAllButton />
             </>
@@ -129,8 +161,10 @@ function Navigation() {
             to="/sessions" 
             className={isSessions ? 'active' : ''}
             title="Manage data sessions"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
           >
-            🔐 Sessions
+            <Lock size={16} />
+            Sessions
           </Link>
           <span style={{ color: 'var(--text-secondary)', marginLeft: '1rem' }}>
             {user?.email}
@@ -172,6 +206,7 @@ function AppRoutes() {
             <Route path="/datasets/:id/patients" element={<ProtectedRoute><PatientsPage /></ProtectedRoute>} />
             <Route path="/datasets/:id/view" element={<ProtectedRoute><DataViewerPage /></ProtectedRoute>} />
             <Route path="/data-manager" element={<ProtectedRoute><DataManagerPage /></ProtectedRoute>} />
+            <Route path="/data-sources" element={<ProtectedRoute><DataSourceManager /></ProtectedRoute>} />
             
             {/* Redirect root to datasets if authenticated, otherwise to login */}
             <Route path="*" element={<Navigate to="/datasets" replace />} />
