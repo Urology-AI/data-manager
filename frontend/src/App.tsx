@@ -136,14 +136,14 @@ function Navigation() {
                 <FolderOpen size={16} />
                 Dataset Store
               </Link>
-              <Link 
-                to="/data-manager" 
+              <Link
+                to="/data-manager"
                 className={isDataManager ? 'active' : ''}
-                title="View database table - no uploads"
+                title="Check dataset columns against HIPAA Safe Harbor identifiers"
                 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
               >
                 <Eye size={16} />
-                Data Viewer
+                HIPAA Check
               </Link>
               <Link 
                 to="/data-sources" 
