@@ -1,12 +1,14 @@
 services:
-  # Backend API Service
+  # ── Backend (FastAPI) ──────────────────────────────────────────────────────
   - type: web
     name: data-manager-backend
     env: docker
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    plan: starter  # Change to 'standard' or 'pro' for production
-    region: oregon  # Choose your preferred region: oregon, frankfurt, singapore
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -15,32 +17,26 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: ENCRYPTION_KEY
-        generateValue: true  # Optional, but good to have
+        generateValue: true
       - key: EPHEMERAL_STORAGE
-        value: false
+        value: "false"
       - key: CLEAR_ON_STARTUP
-        value: false
+        value: "false"
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
-        value: 1440
+        value: "1440"
+      # Allow requests from the frontend — update if you add a custom domain
       - key: CORS_ORIGINS
         value: https://data-manager-frontend.onrender.com
-    healthCheckPath: /health
-    autoDeploy: true
 
-  # Frontend Static Site
+  # ── Frontend (React / Vite static site) ───────────────────────────────────
   - type: web
     name: data-manager-frontend
     env: static
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: ./frontend/dist
-    envVars:
-      - key: VITE_API_URL
-        fromService:
-          name: data-manager-backend
-          type: web
-          property: host
-        # This will be set to: https://data-manager-backend.onrender.com
+    autoDeploy: true
     routes:
+      # React Router — all paths fall through to index.html
       - type: rewrite
         source: /*
         destination: /index.html
@@ -51,11 +47,15 @@ services:
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
+    envVars:
+      # Points the API client at the backend service
+      - key: VITE_API_URL
+        value: https://data-manager-backend.onrender.com
 
+# ── PostgreSQL ─────────────────────────────────────────────────────────────
 databases:
-  # PostgreSQL Database
   - name: data-manager-db
     databaseName: datamanagerdb
     user: datamanager
-    plan: starter  # Free tier, upgrade for production
+    plan: starter
     postgresMajorVersion: 15
