@@ -106,14 +106,16 @@ function ApiExplorerPage() {
         case 'GET':
           result = await apiClient.get(path)
           break
-        case 'POST':
+        case 'POST': {
           const body = requestBody ? JSON.parse(requestBody) : {}
           result = await apiClient.post(path, body)
           break
-        case 'PATCH':
+        }
+        case 'PATCH': {
           const patchBody = requestBody ? JSON.parse(requestBody) : {}
           result = await apiClient.patch(path, patchBody)
           break
+        }
         default:
           throw new Error(`Method ${selectedEndpoint.method} not supported`)
       }

@@ -9,44 +9,6 @@ const apiClient = axios.create({
   },
 })
 
-// Add token to requests if available
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
-
-// Handle 401/403 errors (unauthorized/forbidden) - redirect appropriately
-const AUTH_PATHS = ['/login', '/register', '/forgot-password', '/reset-password']
-apiClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401 || error.response?.status === 403) {
-      const currentPath = window.location.pathname
-      const isAuthPage = AUTH_PATHS.some((p) => currentPath.startsWith(p))
-      if (!isAuthPage) {
-        const token = localStorage.getItem('token')
-        // If we have a token but get 401/403, might be missing session_id
-        // Check if error message suggests session needed
-        const errorDetail = error.response?.data?.detail || ''
-        const needsSession = errorDetail.includes('session') || errorDetail.includes('Session')
-        
-        if (token && needsSession) {
-          // Token exists but session not unlocked, go to sessions page
-          window.location.href = '/sessions'
-        } else {
-          // No token or other auth issue, go to login
-          localStorage.removeItem('token')
-          window.location.href = '/login'
-        }
-      }
-    }
-    return Promise.reject(error)
-  }
-)
-
 export default apiClient
 
 export const datasetsApi = {
@@ -61,11 +23,10 @@ export const datasetsApi = {
         params: {
           data_type: dataType
         },
-        timeout: 60000, // 60 second timeout for large files
+        timeout: 60000,
       })
       return response.data
     } catch (error: any) {
-      // Better error handling
       if (error.response) {
         throw new Error(error.response.data?.detail || 'Upload failed')
       } else if (error.request) {
@@ -239,112 +200,9 @@ export const sessionApi = {
     const response = await apiClient.delete('/api/session/clear-all')
     return response.data
   },
-  
+
   getStats: async () => {
     const response = await apiClient.get('/api/session/stats')
-    return response.data
-  },
-}
-
-export const authApi = {
-  register: async (email: string, password: string, fullName?: string) => {
-    const response = await apiClient.post('/api/auth/register', {
-      email,
-      password,
-      full_name: fullName,
-    })
-    return response.data
-  },
-
-  /** Session-based login: step 1 - submit email, create session, send OTP */
-  sessionStart: async (email: string) => {
-    const response = await apiClient.post('/api/auth/session/start', { email })
-    return response.data
-  },
-
-  /** Session-based login: step 2 - verify link from email */
-  sessionVerifyLink: async (sessionId: string) => {
-    const response = await apiClient.post('/api/auth/session/verify-link', {
-      session_id: sessionId,
-    })
-    return response.data
-  },
-
-  /** Session-based login: step 3 - complete login (no password), get token */
-  sessionComplete: async (sessionId: string) => {
-    const response = await apiClient.post('/api/auth/session/complete', {
-      session_id: sessionId,
-    })
-    return response.data
-  },
-
-  /** List all data sessions for the current user */
-  listDataSessions: async () => {
-    const response = await apiClient.get('/api/auth/data-sessions')
-    return response.data
-  },
-
-  /** Create a new data session with name and password */
-  createDataSession: async (name: string, password: string) => {
-    const response = await apiClient.post('/api/auth/data-sessions', {
-      name,
-      password,
-    })
-    return response.data
-  },
-
-  /** Unlock a data session with password, returns new token with session_id */
-  unlockDataSession: async (sessionId: string, password: string) => {
-    const response = await apiClient.post(`/api/auth/data-sessions/${sessionId}/unlock`, {
-      password,
-    })
-    return response.data
-  },
-
-  /** Legacy: login with email + password in one step (no OTP) */
-  login: async (email: string, password: string) => {
-    const response = await apiClient.post('/api/auth/login-json', {
-      email,
-      password,
-    })
-    return response.data
-  },
-
-  getCurrentUser: async () => {
-    const response = await apiClient.get('/api/auth/me')
-    return response.data
-  },
-
-  forgotPassword: async (email: string) => {
-    const response = await apiClient.post('/api/auth/forgot-password', { email })
-    return response.data
-  },
-
-  resetPassword: async (token: string, newPassword: string) => {
-    const response = await apiClient.post('/api/auth/reset-password', {
-      token,
-      new_password: newPassword,
-    })
-    return response.data
-  },
-
-  changePassword: async (currentPassword: string, newPassword: string) => {
-    const response = await apiClient.post('/api/auth/change-password', {
-      current_password: currentPassword,
-      new_password: newPassword,
-    })
-    return response.data
-  },
-
-  verifyEmail: async (token: string) => {
-    const response = await apiClient.get('/api/auth/verify-email', {
-      params: { token },
-    })
-    return response.data
-  },
-
-  resendVerification: async (email: string) => {
-    const response = await apiClient.post('/api/auth/resend-verification', { email })
     return response.data
   },
 }
