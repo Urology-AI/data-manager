@@ -40,8 +40,9 @@ jobs:
       - name: Build frontend
         working-directory: ./frontend
         env:
-          # Set your backend API URL here or use a secret
-          VITE_API_URL: ${{ secrets.VITE_API_URL || 'http://localhost:8000' }}
+          # No backend — tool runs 100% in the browser
+          # Repo is served at https://<org>.github.io/data-manager/
+          VITE_BASE_PATH: /data-manager/
         run: npm run build
 
       - name: Setup Pages
