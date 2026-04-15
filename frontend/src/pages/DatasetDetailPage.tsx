@@ -32,7 +32,7 @@ function DatasetDetailPage() {
     if (viewMode === 'raw') {
       loadRawData()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [id, viewMode])
 
   const loadDataset = async () => {
