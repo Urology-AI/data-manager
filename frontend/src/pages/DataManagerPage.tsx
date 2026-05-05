@@ -46,7 +46,7 @@ const IDENTIFIERS: SHIdentifier[] = [
 ]
 
 function classifyColumn(col: string): SHIdentifier | null {
-  const tokens = col.toLowerCase().split(/[_\s\-\.]+/)
+  const tokens = col.toLowerCase().split(/[_\s.]+/)
   const full = col.toLowerCase()
   for (const id of IDENTIFIERS) {
     for (const pat of id.patterns) {
@@ -63,15 +63,15 @@ function classifyColumn(col: string): SHIdentifier | null {
 interface TextPattern { label: string; re: RegExp; tag: string }
 
 const TEXT_PATTERNS: TextPattern[] = [
-  { label: 'Email',       tag: '[EMAIL]',      re: /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g },
-  { label: 'Phone',       tag: '[PHONE]',      re: /(\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]\d{4}/g },
+  { label: 'Email',       tag: '[EMAIL]',      re: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
+  { label: 'Phone',       tag: '[PHONE]',      re: /(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]\d{4}/g },
   { label: 'SSN',         tag: '[SSN]',        re: /\b\d{3}[-\s]\d{2}[-\s]\d{4}\b/g },
-  { label: 'Date',        tag: '[DATE]',       re: /\b(0?[1-9]|1[0-2])[\/\-](0?[1-9]|[12]\d|3[01])[\/\-](\d{2}|\d{4})\b/g },
+  { label: 'Date',        tag: '[DATE]',       re: /\b(0?[1-9]|1[0-2])[/-](0?[1-9]|[12]\d|3[01])[/-](\d{2}|\d{4})\b/g },
   { label: 'IP Address',  tag: '[IP_ADDRESS]', re: /\b(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g },
   { label: 'URL',         tag: '[URL]',        re: /https?:\/\/[^\s<>"']+/g },
   { label: 'ZIP Code',    tag: '[ZIP]',        re: /\b\d{5}(?:-\d{4})?\b/g },
-  { label: 'Credit Card', tag: '[CREDIT_CARD]',re: /\b(?:\d{4}[\s\-]?){3}\d{4}\b/g },
-  { label: 'MRN',         tag: '[MRN]',        re: /\b(?:MRN|mrn|Mr\.?\s*#?|medical\s+record\s*(?:number|#|no\.?))\s*:?\s*[\w\-]+/gi },
+  { label: 'Credit Card', tag: '[CREDIT_CARD]',re: /\b(?:\d{4}[\s-]?){3}\d{4}\b/g },
+  { label: 'MRN',         tag: '[MRN]',        re: /\b(?:MRN|mrn|medical\s+record\s*(?:number|#|no\.?))\s*:?\s*[\w-]+/gi },
 ]
 
 function deidentifyText(input: string): { result: string; counts: Record<string, number> } {

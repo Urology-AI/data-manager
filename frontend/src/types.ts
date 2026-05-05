@@ -34,8 +34,8 @@ export interface Patient {
   genetic_mutation?: string
   
   // Metadata
-  raw?: Record<string, any>
-  extra_fields?: Record<string, any>
+  raw?: Record<string, unknown>
+  extra_fields?: Record<string, unknown>
   
   created_at: string
   updated_at: string
@@ -70,7 +70,7 @@ export interface ReprocessCheckResponse {
     first_name?: string
     last_name?: string
     missing_fields: Record<string, {
-      csv_value: any
+      csv_value: unknown
       csv_column: string
     }>
   }>
